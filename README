@@ -1,0 +1,42 @@
+Hi There!
+
+In this folder is everything you need to be able to run the OCR pipeline.  You should be able to get going with
+
+> npm install
+> node test.js -d test_images/NH/jpg300dpicolor/
+
+
+And that should output a whole bunch of stuff, and finish with:
+
+============ RESULTS ============
+Matched Tickets: 395
+Failed Tickets: 20
+Total Tickets: 415
+Match Rate: 95.18072289156626%
+
+
+What test.js does is ocr all of the tickets in the specified folder then compare the OCR results to the data in ticketresults.json.  
+Ticketresults.json is a human-ocr'd database for these specific images.
+It *IS* possible that there are a couple of human errors.  I have not checked all 20 of the failures.  Most of them I am confident
+are real OCR errors.
+
+The OCR process is in ocr-tesseract.js.  Test.js is a wrapper which collects the images and prints results.  ocr-tesseract.js is a lambda
+task, but is run with the npm package "locallambda" so no actual AWS credentials are required.
+
+The OCR process in more detail:
+1) Convert the image to .tif, move to /tmp
+2) Run the image through a "sanitizier" which does preprocessing with opencv.  This new file is a also in /tmp/ but with the prefix "tmp_".
+3) Tesseract is run on the "tmp_" file, it's raw results are in /tmp/ with a ".txt" extention
+4) We then sanitize the output a bit, enforcing the format of 6 2-digit numbers for example, and put that in the ".fixed" file
+5) We then open .fixed and compare to ticketresults.json
+
+
+NOTE that step 4, in theory, should NOT be required if we could tell tesseract itself to only parse 2 digit numbers (FYI: lottery tickets the number "1" is printed "01").  
+However, our attempts to tell tesseract this have thus far been unsuccessful.
+
+The highest lottery number is also 69, we also have failed at that as sometimes tesseract outputs i.e. "88" instead of 68.
+
+
+
+Your goal is to run test.js on this set of sample images and produce a 100% match rate.
+
