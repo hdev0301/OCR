@@ -1,0 +1,15 @@
+{
+   "state": "NH",
+   "plays_bounding_box" : {
+      "x" : 115,
+      "y" : 668,
+      "xsize" : 770,
+      "ysize" : 300 
+   },
+   "barcode_bounding_box" : {
+      "x" : 0,
+      "y" : 0,
+      "xsize" : 0,
+      "ysize" : 0
+   }
+}

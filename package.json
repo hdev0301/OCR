@@ -1,0 +1,26 @@
+{
+  "name": "autolotto_ocr",
+  "version": "1.0.0",
+  "description": "AutoLotto Ticket OCR Engine",
+  "main": "index.js",
+  "scripts": {
+    "test": "echo \"Error: no test specified\" && exit 1"
+  },
+  "author": "Borna Almasi <borna@borna-almasi.com> (http://borna-almasi.com)",
+  "license": "ISC",
+  "dependencies": {
+    "async": "^2.2.0",
+    "commander": "^2.9.0",
+    "gm": "^1.23.0",
+    "lodash": "^4.17.4",
+    "mongodb": "^2.2.25",
+    "yargs": "^6.6.0"
+  },
+  "devDependencies": {
+    "opencv": "^6.0.0",
+    "aws-sdk": "^2.34.0",
+    "lambda-local": "^1.4.2",
+    "prompt": "^1.0.0",
+    "readline-sync": "^1.4.7"
+  }
+}

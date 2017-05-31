@@ -1,0 +1,203 @@
+'use strict';
+
+const gm     = require("gm").subClass( {imageMagick : true } );
+const fs     = require('fs');
+const https  = require( 'https' );
+const http   = require( 'http' );
+const async  = require( 'async' );
+const querystring = require( 'querystring' );
+const program = require('commander');
+const MongoClient = require('mongodb').MongoClient;
+const readlineSync = require('readline-sync');
+const lambdaLocal = require('lambda-local');
+
+const MAX_SAMPLES = 100;
+
+var ticketResults = require('./ticketresults');
+var imageSuffix = "_test_" + new Date().getTime() + ".jpg";
+var expectedResults = 0;
+var actualResults = 0;
+var RESULTS = {};
+
+
+program
+    .option('-s, --state <state>', 'The state to test with')
+    .option('-i, --image <image>', 'Input image for testing')
+    .option('-d, --imgdir <imgdir>', 'Folder with input images for testing')
+    .option('-a, --analyzelogs <image>', 'Analyze logs for an image, do nothing else')
+    .parse(process.argv);
+
+
+function resultsCB(matches, fails) {
+    var matches = 0;
+    var fails = 0;
+
+    Object.keys(RESULTS).forEach(key => {
+        matches += RESULTS[key]['matches'];
+        fails += RESULTS[key]['fails'];
+    });
+
+    if (Object.keys(RESULTS).length == expectedResults) {
+        console.log("============ RESULTS ============");
+        console.log("Matched Tickets: " + matches);
+        console.log("Failed Tickets: " + fails);
+        console.log("Total Tickets: " + (matches + fails));
+        console.log("Match Rate: " + (matches * 100/ (matches + fails)) + "%");
+    }
+}
+
+function runBasicTest() {
+    program.state = program.state || "NH";
+    program.image = program.image || "test_images/NH/20161214-164842-002100.jpg";
+
+    console.log(program.imgdir);
+    if (program.imgdir) {
+        console.log("Doing a folder");
+        var files = fs.readdirSync(program.imgdir);
+        // First make sure we have results for each file
+        if (files.length < MAX_SAMPLES) {
+            expectedResults = files.length;
+        } else {
+            expectedResults = MAX_SAMPLES;
+        }
+        for (var i=0; i<expectedResults; i++) {
+            var file = files[i];
+            if (!(file in ticketResults) || ticketResults[file].length < 3) {
+                askForResults(file);
+            }
+        }
+
+        for (var i=0; i<expectedResults; i++){
+            var file = program.imgdir + "/" + files[i];
+            triggerLambdaFunction(program.state,
+                                  file,
+                                  image => {
+                                      getOCRResults(program.state, image, resultsCB);
+                                  });
+        }
+    } else {
+        expectedResults = 1;
+        triggerLambdaFunction(
+            program.state,
+            program.image,
+            function () {
+                    getOCRResults(program.state, program.image, resultsCB);
+            });
+    }
+}
+
+
+function askForResults(image) {
+    var results = [];
+    console.log("Input human-OCR'd results for " + image);
+    for (var i=0; i<5; i++) {
+        var numbers = []
+        while (numbers.length < 6) {
+            var answer = readlineSync.question('Row ' + i + ': ');
+            numbers = answer.split(' ');
+            if (numbers.length < 6) {
+                console.log("Invalid input, should be minimum 5 numbers seperated by spaces")
+            }
+        }
+        results.push(numbers);
+    }
+
+    ticketResults[image] = results;
+    var json = JSON.stringify(ticketResults);
+    fs.writeFileSync('./ticketresults.json', json, 'utf8');
+}
+
+function checkNumbers(image, numbers) {
+    const filename = image.replace(/^.*[\\\/]/, '')
+    var answers = ticketResults[filename];
+    if (!answers) return false;
+    var found = 0;
+    numbers = numbers.map(x => parseInt(x));
+    for (var y=0; y<answers.length; y++) {
+        var answer = answers[y].map(x => parseInt(x));
+
+        // Hacky array-of-numbers comparison
+        if (JSON.stringify(answer.map(x => x).sort()) === JSON.stringify(numbers.map(x => x).sort())) {
+            return true;
+        }
+    }
+    return false;
+}
+
+
+function getOCRResults(state, image, cb) {
+    console.log("Looking up OCR Results for " + image);
+    const filename = image.replace(/^.*[\\\/]/, '')
+    var results_str = fs.readFileSync("/tmp/" + filename.slice(0, -4) + ".txt.fixed");
+    var results = results_str.toString('utf8').split("\n");
+    var fails = 0;
+    var matches = 0;
+    results.forEach(function(number_str) {
+        var numbers = number_str.split(" ");
+        if (checkNumbers(image, numbers)) {
+            console.log("MATCH: " + numbers);
+            matches += 1;
+        } else {
+            fails += 1;
+            console.log("FAIL: " + numbers);
+        }
+    });
+
+    RESULTS[image] = {};
+    RESULTS[image]['matches'] = matches;
+    RESULTS[image]['fails'] = fails;
+    return cb(matches, fails);
+}
+
+
+function triggerLambdaFunction(state, image, cb) {
+    // Local lambda still pulls the image from S3
+    var params = {
+        Records: [
+            {
+                s3:
+                {
+                    bucket:
+                    {
+                        "name": "nobucket",
+                    },
+                    object:
+                    {
+
+                        "key": image,
+                        "state": "NH",
+                        "imagename": image,
+                    }
+                }
+            }
+            ]
+    };
+    var env = {
+        "ZAPIER_WEBHOOK_HOST": "hooks.zapier.com",
+        "AUTOLOTTO_BACKEND_HOST": "api.autolotto.com",
+        "AUTOLOTTO_INVENTORY_ENDPOINT": "/api/v1.3/inventory/state/$STATE$/scanned",
+        "AUTOLOTTO_TOKEN_ENDPOINT": "/api/v1.3/tom/auth",
+        "ZAPIER_WEBHOOK_PATH": "/hooks/catch/1453753/ta9r0q/",
+        "LOCAL_TEST": true,
+    };
+
+    lambdaLocal.execute({
+        event: params,
+        environment: env,
+        lambdaPath: "ocr-tesseract.js",
+        region: "us-west-2",
+        timeoutMs: 5000,
+        callback: function(data, err) {
+            if (err) {
+                console.log("lambda err: " + err);
+            }
+
+            cb(data);
+        }
+    });
+}
+
+
+
+
+runBasicTest();

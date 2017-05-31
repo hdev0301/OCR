@@ -1,0 +1,3 @@
+echo "Assuming opencv 2.xx is extracted to ~/opencv..."
+PKG_CONFIG_PATH=~/opencv/lib/pkgconfig/ npm install opencv
+
